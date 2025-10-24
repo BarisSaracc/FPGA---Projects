@@ -2,113 +2,50 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
-entity Filter_LP is
-    port (
-        clk   : in  std_logic;
-        x_in  : in  std_logic_vector(15 downto 0);
-        y_out : out std_logic_vector(15 downto 0)
+entity tam_dds is
+    Port ( 
+        clk : in STD_LOGIC;
+        reset : in STD_LOGIC;
+        frekans_ayar : in STD_LOGIC_VECTOR(15 downto 0);
+        dalga_cikis : out STD_LOGIC_VECTOR(15 downto 0)
     );
-end entity;
+end tam_dds;
 
-architecture Behavioral of Filter_LP is
-
-    component mult_gen_0
-      port (
-        CLK : in  std_logic;
-        A   : in  std_logic_vector(15 downto 0);
-        B   : in  std_logic_vector(15 downto 0);
-        P   : out std_logic_vector(31 downto 0)
-      );
-    end component;
-
-   -- Ara toplam sinyalleri
-    signal sum1, sum2, sum3, sum4 : std_logic_vector(32 downto 0); -- 33 bit
-    signal sum5, sum6             : std_logic_vector(33 downto 0); -- 34 bit
-    signal sum_final              : std_logic_vector(34 downto 0); -- 35 bit
-
-    -- Kaydırma hattı sinyalleri
-    signal delay_line_0 : std_logic_vector(15 downto 0);
-    signal delay_line_1 : std_logic_vector(15 downto 0);
-    signal delay_line_2 : std_logic_vector(15 downto 0);
-    signal delay_line_3 : std_logic_vector(15 downto 0);
-    signal delay_line_4 : std_logic_vector(15 downto 0);
-    signal delay_line_5 : std_logic_vector(15 downto 0);
-    signal delay_line_6 : std_logic_vector(15 downto 0);
-    signal delay_line_7 : std_logic_vector(15 downto 0);
+architecture Behavioral of tam_dds is
+    signal sayac : unsigned(31 downto 0) := (others => '0'); -- 32 bit 
     
-    -- Katsayılar
-    constant h0 : std_logic_vector(15 downto 0) := x"0B61"; -- 2913
-constant h1 : std_logic_vector(15 downto 0) := x"0CCD"; -- 3277
-constant h2 : std_logic_vector(15 downto 0) := x"1111"; -- 4369
-constant h3 : std_logic_vector(15 downto 0) := x"16C1"; -- 5825
-constant h4 : std_logic_vector(15 downto 0) := x"16C1"; -- 5825
-constant h5 : std_logic_vector(15 downto 0) := x"1111"; -- 4369
-constant h6 : std_logic_vector(15 downto 0) := x"0CCD"; -- 3277
-constant h7 : std_logic_vector(15 downto 0) := x"0B61"; -- 2913
-
-    -- Multiplier çıkışları
-    signal p0 : std_logic_vector(31 downto 0);
-    signal p1 : std_logic_vector(31 downto 0);
-    signal p2 : std_logic_vector(31 downto 0);
-    signal p3 : std_logic_vector(31 downto 0);
-    signal p4 : std_logic_vector(31 downto 0);
-    signal p5 : std_logic_vector(31 downto 0);
-    signal p6 : std_logic_vector(31 downto 0);
-    signal p7 : std_logic_vector(31 downto 0);
+    -- 128 örnekli sinüs ROM'u (16-bit)
+    type rom_tipi is array (0 to 127) of std_logic_vector(15 downto 0);
+    constant sin_rom : rom_tipi := (
+        X"8000", X"8647", X"8C8B", X"92C7", X"98F8", X"9F19", X"A527", X"AB1F",
+        X"B0FB", X"B6B9", X"BC56", X"C1CD", X"C71C", X"CC3F", X"D133", X"D5F5",
+        X"DA82", X"DED7", X"E2F1", X"E6CF", X"EA6D", X"EDC9", X"F0E2", X"F3B5",
+        X"F641", X"F884", X"FA7C", X"FC29", X"FD89", X"FE9C", X"FF61", X"FFD8",
+        X"FFFF", X"FFD8", X"FF61", X"FE9C", X"FD89", X"FC29", X"FA7C", X"F884",
+        X"F641", X"F3B5", X"F0E2", X"EDC9", X"EA6D", X"E6CF", X"E2F1", X"DED7",
+        X"DA82", X"D5F5", X"D133", X"CC3F", X"C71C", X"C1CD", X"BC56", X"B6B9",
+        X"B0FB", X"AB1F", X"A527", X"9F19", X"98F8", X"92C7", X"8C8B", X"8647",
+        X"8000", X"79B8", X"7374", X"6D38", X"6707", X"60E6", X"5AD8", X"54E0",
+        X"4F04", X"4946", X"43A9", X"3E32", X"38E3", X"33C0", X"2ECC", X"2A0A",
+        X"257D", X"2128", X"1D0E", X"1930", X"1592", X"1236", X"0F1D", X"0C4A",
+        X"09BE", X"077B", X"0583", X"03D6", X"0276", X"0163", X"009E", X"0027",
+        X"0000", X"0027", X"009E", X"0163", X"0276", X"03D6", X"0583", X"077B",
+        X"09BE", X"0C4A", X"0F1D", X"1236", X"1592", X"1930", X"1D0E", X"2128",
+        X"257D", X"2A0A", X"2ECC", X"33C0", X"38E3", X"3E32", X"43A9", X"4946",
+        X"4F04", X"54E0", X"5AD8", X"60E6", X"6707", X"6D38", X"7374", X"79B8"
+    );
     
-    -- Toplam registerı
-    signal sum_reg : std_logic_vector(34 downto 0);
-
 begin
-
-    -- Kaydırma hattı işlemi
-    process(clk)
+    process(clk, reset)
     begin
-        if rising_edge(clk) then
-            delay_line_0 <= x_in;
-            delay_line_1 <= delay_line_0;
-            delay_line_2 <= delay_line_1;
-            delay_line_3 <= delay_line_2;
-            delay_line_4 <= delay_line_3;
-            delay_line_5 <= delay_line_4;
-            delay_line_6 <= delay_line_5;
-            delay_line_7 <= delay_line_6;
+        if reset = '1' then
+            sayac <= (others => '0');
+        elsif rising_edge(clk) then
+            sayac <= sayac + unsigned(frekans_ayar);
         end if;
     end process;
-
-    -- Multiplier örnekleri
-    m0: mult_gen_0 port map ( CLK => clk, A => delay_line_0, B => h0, P => p0 );
-    m1: mult_gen_0 port map ( CLK => clk, A => delay_line_1, B => h1, P => p1 );
-    m2: mult_gen_0 port map ( CLK => clk, A => delay_line_2, B => h2, P => p2 );
-    m3: mult_gen_0 port map ( CLK => clk, A => delay_line_3, B => h3, P => p3 );
-    m4: mult_gen_0 port map ( CLK => clk, A => delay_line_4, B => h4, P => p4 );
-    m5: mult_gen_0 port map ( CLK => clk, A => delay_line_5, B => h5, P => p5 );
-    m6: mult_gen_0 port map ( CLK => clk, A => delay_line_6, B => h6, P => p6 );
-    m7: mult_gen_0 port map ( CLK => clk, A => delay_line_7, B => h7, P => p7 );
-
-    -- Toplama işlemi
-    process(clk)
-    begin
-        if rising_edge(clk) then
-            -- Seviye 1: 8 → 4 (32-bit + 32-bit = 33
-            sum1 <= std_logic_vector(unsigned(p0) + unsigned(p1));
-            sum2 <= std_logic_vector(unsigned(p2) + unsigned(p3));
-            sum3 <= std_logic_vector(unsigned(p4) + unsigned(p5));
-            sum4 <= std_logic_vector(unsigned(p6) + unsigned(p7));
-
-            -- Seviye 2: 4 → 2 (33-bit + 33-bit = 34
-            sum5 <= std_logic_vector(resize(unsigned(sum1), 33) + resize(unsigned(sum2), 33));
-            sum6 <= std_logic_vector(resize(unsigned(sum3), 33) + resize(unsigned(sum4), 33));
-
-            -- Seviye 3: 2 → 1 (34-bit + 34-bit = 35
-            sum_final <= std_logic_vector(unsigned(sum5) + unsigned(sum6));
-
-            -- Toplamı kaydet
-            sum_reg <= sum_final;
-            
-            -- Çıkış 16 bit (35 bit'ten 20 bit'e ölçeklendirme)
-            y_out <= sum_reg(34 downto 19); -- MSB'lerden alarak ölçeklendirme
-        end if;
-    end process;
-
-end architecture;
+    
+    -- Üst 7 bit ile 128 adresi seç (0-127 arası)
+    dalga_cikis <= sin_rom(to_integer(sayac(31 downto 25)));
+    
+end Behavioral;
